@@ -2,105 +2,116 @@
 
 **The Pie Technologies** · Digital Marketing & Technology
 
-A complete Agency Management System (clients → projects → tasks) built around a strict,
-**event-based, Admin-controlled notification system**. Built with Node.js (Express +
-`node:sqlite`), zero external services required to run, and a polished branded web UI.
+A clean, stable, **API-first** Agency Management System organized around one hierarchy:
+
+```
+Client  →  Project  →  Task  →  Notifications
+```
+
+Built with Node.js 22 (Express + `node:sqlite`) and a branded vanilla-JS web UI.
+The same backend, database, auth and notification system will serve the future
+iOS/Android app — no rebuild required.
 
 ---
 
 ## Quick start
 
 ```bash
-npm install        # express only (node:sqlite is built into Node 22+)
-npm start          # http://localhost:3000
+npm install        # express + nodemailer
+npm run build      # sanity-checks all JS + frontend entry
+npm run dev        # http://localhost:3000 (or: npm start)
 ```
 
-**Demo accounts** (seeded automatically on first run):
+**Demo accounts** (seeded on first run):
 
 | Who | Email | Password |
 | --- | --- | --- |
 | Ahmed Raza — Admin | `admin@thepietechnologies.com` | `admin123` |
-| John Malik — Social Media Manager | `john@thepietechnologies.com` | `john123` |
-| Sara Ali — Graphic Designer | `sara@thepietechnologies.com` | `sara123` |
-| Bilal Hussain — SEO Specialist | `bilal@thepietechnologies.com` | `bilal123` |
+| John Malik — Member | `john@thepietechnologies.com` | `john123` |
+| Sara Ali — Member | `sara@thepietechnologies.com` | `sara123` |
+| Bilal Hussain — Member | `bilal@thepietechnologies.com` | `bilal123` |
 
-> Seed data includes a reminder that fires ~3 minutes after first launch so you can watch
-> the scheduler work live (Notification History), a task with **two** reminders, and an
-> overdue-ready task.
-
----
-
-## The notification charter (core product requirement)
-
-The system is **minimal, useful, event-based, and fully Admin-controlled**.
-If nothing requires attention, **it sends nothing**.
-
-**Never sent:** daily summaries, "you have no tasks today", morning greetings, motivational
-or end-of-day messages, repeated notifications for the same event, or anything not tied to
-a real business event.
-
-**Only these events can notify** (each independently switchable per channel):
-
-| Event | WhatsApp | Email | In-App | Who |
-| --- | --- | --- | --- | --- |
-| Task assigned | ✅ on | ✅ on | ✅ on | assignee |
-| Task reminder *(Admin-scheduled only)* | ✅ on | ✅ on | ✅ on | assignee |
-| Task reassigned | ✅ on | ✅ on | ✅ on | new assignee (previous assignee optional) |
-| Project update *(Admin-posted)* | ✅ on | ✅ on | ✅ on | selected team members |
-| Task completed | ⬜ off | ✅ on | ✅ on | Admins (configurable) |
-| Task overdue | ⬜ off | ✅ on | ✅ on | assignee + Admins (configurable) |
-| Team-member comment | ⬜ off | ✅ on | ✅ on | Admins (configurable) |
-| WhatsApp delivery failed | — | ✅ on | ✅ on | Admins (configurable) |
-
-### How the rules map to the product
-
-| Rule | Where it lives |
-| --- | --- |
-| No daily WhatsApp summary / no automatic reminders | Scheduler only ever sends reminders an Admin explicitly created |
-| Admin-controlled reminder defaults + timezone (default **PKT / UTC+5**) | **Settings → Reminder Settings** |
-| Per-task reminders, exact date & time, multiple allowed | Task form → *Enable reminder(s)* → date/time picker rows |
-| Reminder conditions (§6) — task exists · assigned · enabled · time arrived · **not completed** · not already sent | `server/notify/scheduler.js` + unique dedup index |
-| Night-shift friendly — Admin times respected exactly, never shifted to 9-to-5 | All times stored UTC, entered/rendered in the agency timezone |
-| Channel control per event (§13) | **Settings → Notification Control** (global matrix) |
-| Per-member preferences + Admin override for critical events (§14) | **Team → 🔔 Preferences** and **My Preferences** |
-| Notification history with full audit (§15) | **Notification History** — statuses: pending / sent / delivered / failed / skipped (+ skip reasons) |
-| Duplicate prevention via unique event/reference IDs (§16) | `notifications` table unique index + atomic row claiming |
-| Failure isolation — task never fails because a notification failed (§17) | delivery errors logged; **Retry** button in history; admin alerted |
-| Manual project update with per-channel checkboxes (§19) | Project page → **＋ Project Update** |
-| In-app notification center (§20) | Bell menu — real events only |
-
-### Reminder guardrails
-
-- A reminder fires **once**, at the exact Admin-picked minute (20 s scheduler cadence).
-- If the task is completed first → reminder is cancelled and logged as
-  *"Task completed before reminder time — not sent."*
-- If the task has no active assignee → logged as skipped, nothing sent.
-- Running the scheduler twice (or restarting mid-flight) can never duplicate a message.
+Seed data includes a reminder that fires ~3 minutes after first launch, a task with
+two reminders, checklist items, and full client profiles.
 
 ---
 
-## Email & WhatsApp
+## What's inside
 
-- **Emails**: table-based, responsive, branded HTML — logo header, navy/gold palette,
-  structured CLIENT / PROJECT / TASK details card, gold CTA button, website + copyright
-  footer. Seven editable templates (+ a previous-assignee variant) in
-  **Settings → Email Templates** with live preview and `{{placeholders}}`:
-  `{{team_member_name}}`, `{{client_name}}`, `{{project_name}}`, `{{task_name}}`,
-  `{{task_description}}`, `{{priority}}`, `{{due_date}}`, `{{due_time}}`,
-  `{{dashboard_url}}`, `{{admin_name}}` and more.
-- **WhatsApp copy** matches the approved formats exactly (New Task Assigned / Task Reminder /
-  Project Update / Task Assigned to You …), rendered as chat bubbles in history details.
-- **Providers** ship in **simulation mode** (safe demo, everything logged). Add credentials in
-  **Settings → Integrations** to go live:
-  - WhatsApp: Meta **WhatsApp Cloud API** (phone number ID + permanent token)
-  - Email: any **SMTP** server (optionally install `nodemailer`)
-  - "Simulate failures" switches let you exercise the failure → admin-alert → Retry flow.
+- **Clients (primary entity)** — business profile: contact, website, social links,
+  services, package, start date, status, notes. Tabs: Overview / Projects / Tasks /
+  Files / Activity (real activity log). Archive/restore instead of hard delete.
+- **Projects** — always shown under their client (breadcrumb `Client ↓ Project ↓ Task`),
+  start/end dates, status, assigned team, tasks, files, activity, manual updates.
+  Archive cancels all reminders for its tasks.
+- **Tasks** — Pending / In Progress / Completed / On Hold; client + project context,
+  assignee, priority, due date & time, estimated time, multiple Admin-scheduled
+  reminders, checklist, comments, attachments, activity history.
+- **Task creation enforces the hierarchy** — pick Client → Project (only that client's
+  projects are listed); the server rejects invalid client/project combinations.
+- **Global Tasks page** — filters: client, project, assignee, status, priority, due-date
+  range; search across task/client/project.
+- **Calendar** — month grid of task due dates and scheduled reminders (agency timezone).
+- **Reports** — real aggregates only: tasks by status/priority, workload per client and
+  per member, reminder stats, notification delivery health.
+- **Role-aware dashboards** — Admin: overview, due today, overdue, team workload, real
+  activity. Member: only their own work.
+- **Real-time notifications** — the bell updates instantly via Server-Sent Events
+  (no refresh), with a polling fallback.
+- **Notification system** — event-based and Admin-controlled, channels are independent:
+  `in_app · email · whatsapp · push` (push is structured and reserved for the mobile app;
+  rows are recorded as *skipped — no provider configured*). No daily digests, no
+  "no tasks today", no greetings — if nothing needs attention, nothing is sent.
+- **Per-task reminders** — exact Admin-picked date/time in the agency timezone
+  (default PKT), multiple allowed, cancelled on completion or archive, duplicate-proof
+  via unique event IDs + atomic claiming.
+- **8 branded email templates** — editable with live preview and `{{placeholders}}`.
 
-## Tech notes
+## SMTP (§17)
 
-- **Stack**: Node 22, Express 5, `node:sqlite` (no native builds), vanilla-JS SPA frontend.
-- **Storage**: `data/ams.sqlite` (auto-created; delete the folder to reseed).
-- **Scheduler**: in-process, 20 s tick — reminders, one-time overdue detection, delivery.
-- **Timezones**: all instants stored UTC; input/output in the configurable agency timezone
-  via `Intl` — DST-safe, night hours fully respected.
-- **Security**: scrypt-hashed passwords, HttpOnly session cookies, role-gated APIs.
+Settings → Integrations → **Test SMTP Connection** and **Send Test Email**.
+Credentials live only on the server (masked in API responses; env vars
+`SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM` seed the defaults). Failures are
+human-readable (auth vs timeout vs DNS vs TLS), logged, and retryable — a failed email
+never breaks task creation. `nodemailer` ships as a dependency.
+
+## API-first (ready for the future mobile app)
+
+All business logic — auth, permissions, clients, projects, tasks, status, reminders,
+notifications, comments, files — is server-side. Every request is authenticated
+(bearer token or cookie); roles and ownership are always determined by the backend.
+Members only receive data within their work context.
+
+Key endpoints (all under `/api`, bearer auth):
+
+```
+POST /auth/login → { token, user }          GET /auth/me
+GET  /events                                (SSE real-time notifications)
+GET  /meta · /dashboard · /calendar · /reports (admin)
+GET/POST/PATCH /clients · POST /clients/:id/archive · GET /clients/:id (detail+tabs data)
+GET/POST/PATCH /projects · POST /projects/:id/archive · GET /projects/:id
+POST /projects/:id/updates
+GET/POST/PATCH/DELETE /tasks (+filters: status, client_id, project_id, assignee_id,
+                             priority, due_from, due_to, q)
+POST /tasks/:id/status · /tasks/:id/complete · /tasks/:id/comments
+POST /tasks/:id/checklist · PATCH/DELETE /checklist/:id
+POST /attachments/:type/:id · GET /attachments/:id/download · DELETE /attachments/:id
+GET  /team · /team/:id/prefs · PUT /team/:id/prefs
+GET  /notifications/history · POST /notifications/:id/retry
+GET  /inapp · POST /inapp/read
+GET/PUT /settings/:key · POST /settings/test-smtp · POST /settings/send-test-email
+GET/PUT /templates(/:key) · POST /templates/:key/preview
+```
+
+Entity responses are consistent and mobile-friendly (e.g. task:
+`id, clientId, projectId, title, status, priority, assigneeId, dueDate, dueTime,
+estimatedMinutes` — with snake_case aliases for the current web app).
+
+## Notes
+
+- **Storage**: `data/ams.sqlite` + `data/uploads/` (gitignored; delete to reseed).
+- **Migrations are additive** — existing data is preserved on upgrade.
+- **Scheduler**: in-process, 20 s tick; archived clients/projects silence reminders
+  and overdue alerts; completed tasks cancel pending reminders.
+- **Security**: scrypt password hashing, HttpOnly cookies + bearer tokens,
+  role-gated and ownership-checked endpoints.

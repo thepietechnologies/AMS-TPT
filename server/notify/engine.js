@@ -17,8 +17,10 @@ const { rid, nowIso, applyVars } = require('../util');
 const { fmtInTz, fmtDateInTz, fmtTimeInTz } = require('../timezone');
 const { renderEmail } = require('./templates');
 const { sendWhatsApp, sendEmail } = require('./providers');
+const bus = require('../bus');
 
 const CRITICAL_EVENTS_DEFAULT = ['task_assigned', 'task_reminder', 'task_reassigned', 'task_overdue'];
+const ALL_CHANNELS = ['whatsapp', 'email', 'in_app', 'push'];
 
 const EVENT_LABELS = {
   task_assigned: 'Task Assigned',
@@ -230,10 +232,10 @@ function userById(id) {
  */
 function enqueue({ eventId, eventType, templateKey, recipients, ctx, channels, skipPrefs = false }) {
   const notif = getSetting('notificationSettings');
-  const matrix = notif.events[eventType] || { whatsapp: false, email: false, in_app: false };
+  const matrix = notif.events[eventType] || { whatsapp: false, email: false, in_app: false, push: false };
   const critical = (notif.criticalEvents || CRITICAL_EVENTS_DEFAULT).includes(eventType);
   const override = !!notif.adminOverrideCritical && critical;
-  const active = Array.isArray(channels) ? channels : ['whatsapp', 'email', 'in_app'].filter(c => matrix[c]);
+  const active = Array.isArray(channels) ? channels : ALL_CHANNELS.filter(c => matrix[c]);
   const queued = [];
 
   for (const rcpt of recipients) {
@@ -242,7 +244,8 @@ function enqueue({ eventId, eventType, templateKey, recipients, ctx, channels, s
       : null;
     const vars = buildVars({ ...ctx, recipient: rcpt });
     const waText = whatsappText(templateKey === 'task_reassigned_from' ? 'task_reassigned' : eventType, ctx, vars);
-    const app = inAppCopy(templateKey || eventType, ctx, vars);
+    const appKey = templateKey === 'task_reassigned_from' ? 'task_reassigned_from' : eventType;
+    const app = inAppCopy(appKey, ctx, vars);
 
     for (const channel of active) {
       if (!Array.isArray(channels) && !matrix[channel]) continue;        // §13 global control
@@ -303,6 +306,7 @@ const claimRow = db.prepare("UPDATE notifications SET status = 'sending', schedu
 const reclaimStale = db.prepare("UPDATE notifications SET status = 'pending' WHERE status = 'sending' AND scheduled_at < ?");
 const markSent = db.prepare("UPDATE notifications SET status = 'sent', sent_at = ?, error = '' WHERE id = ?");
 const markFailed = db.prepare("UPDATE notifications SET status = 'failed', error = ? WHERE id = ?");
+const markSkipped = db.prepare("UPDATE notifications SET status = 'skipped', status_reason = ? WHERE id = ?");
 const insInApp = db.prepare('INSERT INTO in_app_messages(user_id,notification_id,event_type,title,body,link,created_at) VALUES(?,?,?,?,?,?,?)');
 
 /* Serialize delivery so overlapping callers (API + scheduler) can't double-send */
@@ -315,8 +319,23 @@ function deliverOne(row) {
   if (row.channel === 'in_app') {
     if (row.recipient_id) {
       insInApp.run(row.recipient_id, row.id, row.event_type, meta.title || row.subject, meta.body || row.message, meta.link || '', nowIso());
+      markSent.run(nowIso(), row.id);
+      // §13 — real-time: push to the user's browser over SSE (bell updates instantly)
+      bus.publish(row.recipient_id, {
+        id: row.id,
+        event_type: row.event_type,
+        title: meta.title || row.subject,
+        body: meta.body || row.message,
+        link: meta.link || '',
+      });
+    } else {
+      markSent.run(nowIso(), row.id);
     }
-    markSent.run(nowIso(), row.id);
+    return { ok: true };
+  }
+  if (row.channel === 'push') {
+    // §14 — channel structured now; the future mobile app completes delivery.
+    markSkipped.run('Reserved for the future mobile app — no push provider configured yet', row.id);
     return { ok: true };
   }
   if (row.channel === 'whatsapp') {

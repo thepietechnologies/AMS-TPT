@@ -1,17 +1,19 @@
 {
   "name": "ams-tpt",
-  "version": "1.0.0",
-  "description": "AMS \u2014 Agency Management System for The Pie Technologies (event-based, admin-controlled notification system)",
+  "version": "1.1.0",
+  "description": "AMS — Agency Management System for The Pie Technologies (Client → Project → Task, event-based notifications, API-first for web + future mobile)",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "dev": "node --watch server/index.js",
+    "build": "node scripts/build.js"
   },
   "license": "MIT",
-  "dependencies": {
-    "express": "^5.1.0"
-  },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "nodemailer": "^7.0.13"
   }
 }

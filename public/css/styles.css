@@ -321,3 +321,77 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .nav-toggle { display: block; }
   .view { padding: 16px 12px; }
 }
+
+/* ═══ v1.1 additions: hierarchy UI, calendar, statuses, files, activity ════ */
+.icon-btn { border: 0; background: none; cursor: pointer; font-size: 16px; color: inherit; padding: 4px 8px; border-radius: 8px; line-height: 1.2; }
+.icon-btn:hover { background: rgba(148, 163, 184, .18); }
+
+/* Breadcrumbs (Client ↓ Project ↓ Task) */
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+.crumb-link { color: var(--blue); text-decoration: none; font-weight: 600; }
+.crumb-link:hover { text-decoration: underline; }
+.crumb-sep { color: var(--gold-dark); font-size: 11px; }
+.crumb-here { color: var(--muted); font-weight: 650; }
+
+/* Task statuses: pending / in_progress / completed / on_hold */
+.b-pending2 { background: #eef2f7; color: #475569; }
+.b-in_progress { background: var(--blue-soft); color: var(--blue); }
+.b-on_hold { background: #fef9c3; color: #a16207; }
+.check-done { text-decoration: line-through; color: var(--muted); }
+.check-item { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; background: #fbfcfe; }
+.check-item .rp-x { visibility: hidden; }
+.check-item:hover .rp-x { visibility: visible; }
+.tm-overdue { color: var(--red) !important; font-weight: 700; }
+
+/* Calendar */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-dow { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .8px; color: var(--muted); padding: 4px 0; text-transform: uppercase; }
+.cal-cell { min-height: 92px; border: 1px solid var(--line); border-radius: 10px; padding: 6px; background: #fff; overflow: hidden; }
+.cal-blank { background: transparent; border-color: transparent; }
+.cal-today { border: 2px solid var(--gold); }
+.cal-day { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.cal-today .cal-day { color: var(--gold-dark); }
+.cal-item {
+  font-size: 11px; border-radius: 6px; padding: 3px 6px; margin-bottom: 3px; cursor: pointer;
+  background: var(--blue-soft); color: var(--blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600;
+}
+.cal-item.cal-overdue { background: var(--red-soft); color: var(--red); }
+.cal-item.cal-rem { background: var(--gold-soft); color: var(--gold-dark); }
+.cal-item.cal-done { opacity: .55; text-decoration: line-through; }
+.cal-more { font-size: 10.5px; color: var(--muted); padding-left: 4px; }
+@media (max-width: 760px) {
+  .cal-cell { min-height: 64px; padding: 3px; }
+  .cal-item { font-size: 9.5px; padding: 2px 4px; }
+  .cal-day { font-size: 10.5px; }
+}
+
+/* Activity timeline */
+.activity { display: flex; flex-direction: column; gap: 2px; }
+.act-row { display: flex; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
+.act-row:last-child { border-bottom: 0; }
+.act-ico { width: 28px; height: 28px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.act-detail { font-size: 13.5px; line-height: 1.45; }
+.act-meta { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+
+/* Files */
+.file-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: #fbfcfe; flex-wrap: wrap; }
+.file-name { font-weight: 600; color: var(--blue); text-decoration: none; font-size: 13.5px; }
+.file-name:hover { text-decoration: underline; }
+.upload-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* Client cards */
+.client-card { transition: box-shadow .12s, transform .12s; }
+.client-card:hover { box-shadow: 0 8px 28px -10px rgba(13,27,46,.25); transform: translateY(-1px); }
+
+/* Mobile-first tweaks */
+@media (max-width: 560px) {
+  .page-head h1 { font-size: 19px; }
+  .topbar { padding: 8px 10px; }
+  .topbar-tz { display: none; }
+  .stat .s-val { font-size: 18px; }
+  .modal { border-radius: 14px; }
+  .modal-body { max-height: 74vh; }
+  .field-row { flex-direction: column; gap: 0; }
+  .task-actions { flex-direction: column; align-items: flex-end; }
+  .filters .input { min-width: 110px; flex: 1 1 130px; }
+}

@@ -1,5 +1,5 @@
 'use strict';
-/* ─── App framework: router, api, toasts, modal, notification bell ───────── */
+/* ─── App framework: router, api, toasts, modal, real-time bell (SSE) ────── */
 const App = (() => {
   const state = {
     user: null,
@@ -21,7 +21,7 @@ const App = (() => {
     },
   };
 
-  /* ── API helper ── */
+  /* ── API helper — bearer token attached; server verifies every request ── */
   async function api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
     const t = tokenStore.get();
@@ -39,12 +39,34 @@ const App = (() => {
       if (res.status === 401 && state.user) {
         tokenStore.set(null);
         state.user = null;
+        disconnectEvents();
         renderShell();
         location.hash = '#/login';
       }
       throw new Error(msg);
     }
     return data;
+  }
+
+  /* ── Real-time notifications over SSE (§13) ── */
+  let evtSource = null;
+  let bellFallbackTimer = null;
+  function connectEvents() {
+    disconnectEvents();
+    const t = tokenStore.get();
+    if (!t || !state.user) return;
+    try {
+      evtSource = new EventSource(`/api/events?token=${encodeURIComponent(t)}`);
+      evtSource.addEventListener('notification', (e) => {
+        let p = {};
+        try { p = JSON.parse(e.data); } catch { /* ignore */ }
+        refreshBell();
+        if (p.title) toast(`🔔 ${p.title}`, 'info', 5000);
+      });
+    } catch { /* SSE unavailable — fallback poll below still runs */ }
+  }
+  function disconnectEvents() {
+    if (evtSource) { try { evtSource.close(); } catch { /* ignore */ } evtSource = null; }
   }
 
   /* ── Utilities ── */
@@ -95,11 +117,21 @@ const App = (() => {
     });
   }
 
+  const TASK_STATUS_META = {
+    pending: { label: 'Pending', badge: 'b-pending' },
+    in_progress: { label: 'In Progress', badge: 'b-in_progress' },
+    completed: { label: 'Completed', badge: 'b-completed' },
+    on_hold: { label: 'On Hold', badge: 'b-on_hold' },
+  };
   const priorityBadge = (p) => `<span class="badge b-${String(p || 'medium').toLowerCase()}">${esc(p || 'Medium')}</span>`;
-  const statusBadge = (s) => `<span class="badge b-${esc(s)}">${esc(s)}</span>`;
+  const statusBadge = (s) => `<span class="badge ${(TASK_STATUS_META[s] || {}).badge || 'b-neutral'}">${(TASK_STATUS_META[s] || {}).label || esc(s)}</span>`;
+  const genericStatusBadge = (s) => {
+    const map = { sent: 'b-sent', delivered: 'b-delivered', pending: 'b-pending2', failed: 'b-failed', skipped: 'b-skipped', active: 'b-completed', archived: 'b-skipped', paused: 'b-pending2', completed: 'b-completed' };
+    return `<span class="badge ${map[s] || 'b-neutral'}">${esc(s)}</span>`;
+  };
   const channelBadge = (c) => {
-    const ico = { whatsapp: '🟢', email: '✉️', in_app: '🔔' }[c] || '•';
-    return `<span class="badge b-${esc(c)}">${ico} ${esc(({ whatsapp: 'WhatsApp', email: 'Email', in_app: 'In-App' })[c] || c)}</span>`;
+    const ico = { whatsapp: '🟢', email: '✉️', in_app: '🔔', push: '📱' }[c] || '•';
+    return `<span class="badge b-${esc(c)}">${ico} ${esc(({ whatsapp: 'WhatsApp', email: 'Email', in_app: 'In-App', push: 'Mobile Push' })[c] || c)}</span>`;
   };
   const initials = (n) => String(n || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const fmtWhen = (iso) => {
@@ -110,15 +142,16 @@ const App = (() => {
   };
   const qs = (hash) => { const i = hash.indexOf('?'); return new URLSearchParams(i >= 0 ? hash.slice(i + 1) : ''); };
   const baseHash = (hash) => { const h = hash.replace(/^#/, '').split('?')[0]; return h || '/dashboard'; };
+  const fmtBytes = (n) => !n ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
   /* ── Router ── */
-  const routes = {}; // name → { render, adminOnly?, nav? }
+  const routes = {};
   function register(name, def) { routes[name] = def; }
 
   async function navigate() {
     if (!state.user) return;
     const hash = location.hash || '#/dashboard';
-    const parts = baseHash(hash).split('/').filter(Boolean); // e.g. ['tasks','3']
+    const parts = baseHash(hash).split('/').filter(Boolean);
     const name = parts[0] || 'dashboard';
     const route = (parts.length > 1 && routes[`${name}_detail`])
       ? routes[`${name}_detail`]
@@ -138,19 +171,18 @@ const App = (() => {
 
   function renderNav() {
     const nav = $('#nav');
+    const admin = state.user.role === 'admin';
     const items = [
       ['label', 'Workspace'],
       ['dashboard', '📊', 'Dashboard'],
-      ['tasks', '✅', 'Tasks'],
-      ['projects', '📁', 'Projects'],
       ['clients', '🏢', 'Clients'],
-      ...(state.user.role === 'admin' ? [['label', 'Team & Notifications']] : []),
-      ...(state.user.role === 'admin' ? [
-        ['team', '👥', 'Team'],
-        ['history', '📜', 'Notification History'],
-        ['templates', '✉️', 'Email Templates'],
-        ['settings', '⚙️', 'Settings'],
-      ] : [['label', 'Account'], ['myprefs', '🔔', 'My Preferences']]),
+      ['tasks', '✅', 'Tasks'],
+      ['calendar', '📅', 'Calendar'],
+      ['label', admin ? 'Team & Notifications' : 'Account'],
+      ...(admin ? [['team', '👥', 'Team']] : []),
+      ['notifications', '🔔', 'Notifications'],
+      ...(admin ? [['reports', '📈', 'Reports']] : []),
+      ...(admin ? [['settings', '⚙️', 'Settings']] : [['myprefs', '🔔', 'My Preferences']]),
     ];
     const current = baseHash(location.hash).split('/').filter(Boolean)[0] || 'dashboard';
     nav.innerHTML = items.map(it => {
@@ -176,7 +208,14 @@ const App = (() => {
       $('#side-avatar').textContent = initials(state.user.name);
       renderNav();
       loadMeta();
+      connectEvents();
       refreshBell();
+      // safety net if SSE is blocked by a proxy
+      if (bellFallbackTimer) clearInterval(bellFallbackTimer);
+      bellFallbackTimer = setInterval(refreshBell, 60000);
+    } else {
+      disconnectEvents();
+      if (bellFallbackTimer) { clearInterval(bellFallbackTimer); bellFallbackTimer = null; }
     }
   }
 
@@ -206,7 +245,7 @@ const App = (() => {
         <div style="flex:1;min-width:0;">
           <div class="b-title">${esc(r.title)}</div>
           <div class="b-body">${esc(r.body)}</div>
-          <div class="b-time">${esc(App.fmtWhen(r.created_at))}</div>
+          <div class="b-time">${esc(fmtWhen(r.created_at))}</div>
         </div>
       </div>`).join('');
     $$('.bell-item', list).forEach(el => el.addEventListener('click', async () => {
@@ -240,7 +279,6 @@ const App = (() => {
   }
 
   async function boot() {
-    // login form
     $('#auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = $('#auth-btn');
@@ -289,8 +327,6 @@ const App = (() => {
     window.addEventListener('hashchange', navigate);
 
     // session restore — stored bearer token first, then cookie session
-    // (a cookie session's token is adopted so refreshes keep working in
-    // cross-site iframe previews where cookies stop being sent)
     if (!tokenStore.get()) {
       try {
         const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
@@ -313,8 +349,9 @@ const App = (() => {
 
   return {
     state, api, esc, toast, modal, confirmDialog, boot,
-    register, navigate, refreshBell, loadMeta, fmtWhen,
-    priorityBadge, statusBadge, channelBadge, initials, qs, baseHash,
+    register, navigate, refreshBell, loadMeta, fmtWhen, fmtBytes,
+    priorityBadge, statusBadge, genericStatusBadge, channelBadge, TASK_STATUS_META,
+    initials, qs, baseHash, tokenStore,
     $, $$,
   };
 })();

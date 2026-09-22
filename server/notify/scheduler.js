@@ -12,6 +12,20 @@
 const { db, getSetting } = require('../db');
 const { nowIso } = require('../util');
 const engine = require('./engine');
+const { logActivity } = require('../activity');
+
+/* §23 — archived/deleted parents silence reminders and overdue alerts */
+function parentArchived(task) {
+  if (task.project_id) {
+    const p = db.prepare('SELECT status FROM projects WHERE id = ?').get(task.project_id);
+    if (p && p.status === 'archived') return 'Project archived — reminders stopped';
+  }
+  if (task.client_id) {
+    const c = db.prepare('SELECT status FROM clients WHERE id = ?').get(task.client_id);
+    if (c && c.status === 'archived') return 'Client archived — reminders stopped';
+  }
+  return null;
+}
 
 async function processDueReminders() {
   const due = db.prepare(`
@@ -30,6 +44,14 @@ async function processDueReminders() {
     if (!task) {
       db.prepare('UPDATE task_reminders SET processed_at = ?, skip_reason = ? WHERE id = ?')
         .run(nowIso(), 'Task no longer exists', reminderId);
+      skipped++; continue;
+    }
+    // §23 — archived clients/projects must not keep triggering reminders
+    const parentBlock = parentArchived(task);
+    if (parentBlock) {
+      db.prepare('UPDATE task_reminders SET processed_at = ?, skip_reason = ? WHERE id = ?')
+        .run(nowIso(), parentBlock, reminderId);
+      logActivity({ entityType: 'reminder', entityId: reminderId, clientId: task.client_id, projectId: task.project_id, taskId: task.id, action: 'reminder_skipped', detail: parentBlock });
       skipped++; continue;
     }
     const assignee = task.assignee_id ? db.prepare('SELECT * FROM users WHERE id = ?').get(task.assignee_id) : null;
@@ -62,6 +84,7 @@ async function processDueReminders() {
       ctx,
     });
     db.prepare('UPDATE task_reminders SET processed_at = ? WHERE id = ?').run(nowIso(), reminderId);
+    logActivity({ entityType: 'reminder', entityId: reminderId, clientId: task.client_id, projectId: task.project_id, taskId: task.id, action: 'reminder_sent', detail: 'Reminder sent at the scheduled time' });
     fired++;
   }
   return { remindersFired: fired, remindersSkipped: skipped };
@@ -91,9 +114,11 @@ function auditSkippedReminder(reminderId, task, assignee, reason) {
 async function detectOverdue() {
   const adminCfg = getSetting('adminNotify');
   const overdue = db.prepare(`
-    SELECT * FROM tasks
-    WHERE status = 'open' AND due_at IS NOT NULL AND due_at < ? AND overdue_notified = 0
-    ORDER BY due_at ASC`).all(nowIso());
+    SELECT * FROM tasks t
+    WHERE t.status NOT IN ('completed') AND t.due_at IS NOT NULL AND t.due_at < ? AND t.overdue_notified = 0
+      AND (t.project_id IS NULL OR (SELECT status FROM projects WHERE id = t.project_id) != 'archived')
+      AND (t.client_id IS NULL OR (SELECT status FROM clients WHERE id = t.client_id) != 'archived')
+    ORDER BY t.due_at ASC`).all(nowIso());
 
   let count = 0;
   for (const task of overdue) {
