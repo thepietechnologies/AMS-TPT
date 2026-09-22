@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMS — The Pie Technologies</title>
+  <link rel="icon" type="image/png" href="/assets/logo-mark.png">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="auth-screen" id="auth-screen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <img src="/assets/logo-mark.png" alt="" class="auth-logo">
+          <div>
+            <div class="auth-brand-name">THE PIE</div>
+            <div class="auth-brand-sub">TECHNOLOGIES</div>
+          </div>
+        </div>
+        <h1 id="auth-title">Sign in to AMS</h1>
+        <p class="auth-lead">Agency Management System — tasks, projects &amp; event-based notifications.</p>
+        <form id="auth-form">
+          <label class="field"><span>Email</span>
+            <input type="email" id="auth-email" placeholder="you@thepietechnologies.com" autocomplete="username" required>
+          </label>
+          <label class="field"><span>Password</span>
+            <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" required>
+          </label>
+          <div class="form-error" id="auth-error"></div>
+          <button class="btn btn-primary btn-block" type="submit" id="auth-btn">Sign in</button>
+        </form>
+        <div class="auth-demo">
+          <div class="auth-demo-title">Demo accounts</div>
+          <button class="demo-chip" data-email="admin@thepietechnologies.com" data-password="admin123"><b>Ahmed Raza</b> — Admin</button>
+          <button class="demo-chip" data-email="john@thepietechnologies.com" data-password="john123"><b>John Malik</b> — Member</button>
+        </div>
+      </div>
+      <div class="auth-foot">The Pie Technologies · Digital Marketing &amp; Technology · thepietechnologies.com</div>
+    </div>
+    <div id="shell" class="shell hidden">
+      <aside class="sidebar" id="sidebar">
+        <div class="side-brand">
+          <img src="/assets/logo-mark.png" alt="" class="side-logo">
+          <div>
+            <div class="side-brand-name">THE PIE</div>
+            <div class="side-brand-sub">TECHNOLOGIES · AMS</div>
+          </div>
+        </div>
+        <nav class="nav" id="nav"></nav>
+        <div class="side-user">
+          <div class="avatar" id="side-avatar">A</div>
+          <div class="side-user-meta">
+            <div class="side-user-name" id="side-name"></div>
+            <div class="side-user-role" id="side-role"></div>
+          </div>
+          <button class="icon-btn" id="logout-btn" title="Sign out">⎋</button>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <button class="icon-btn nav-toggle" id="nav-toggle">☰</button>
+          <div class="topbar-tz" id="topbar-tz" title="Agency timezone (Settings → Reminder Settings)">🕐 —</div>
+          <div class="spacer"></div>
+          <button class="bell" id="bell-btn" title="Notifications">
+            🔔<span class="bell-count hidden" id="bell-count">0</span>
+          </button>
+          <div class="bell-panel hidden" id="bell-panel">
+            <div class="bell-panel-head">
+              <b>Notifications</b>
+              <button class="linklike" id="bell-readall">Mark all read</button>
+            </div>
+            <div class="bell-panel-list" id="bell-list"></div>
+          </div>
+        </header>
+        <div class="view" id="view"></div>
+      </main>
+    </div>
+  </div>
+  <div id="toasts" class="toasts"></div>
+  <div id="modal-root"></div>
+  <script src="/js/app.js"></script>
+  <script src="/js/views.js"></script>
+  <script>App.boot();</script>
+</body>
+</html>
