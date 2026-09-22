@@ -8,19 +8,40 @@ const App = (() => {
     settings: null,
   };
 
+  /* ── Session token (works inside cross-site preview iframes where cookies
+   *    may be blocked; localStorage is wrapped in try/catch for safety) ── */
+  let memToken = null;
+  const tokenStore = {
+    get() {
+      try { return localStorage.getItem('tpt_token') || memToken; } catch { return memToken; }
+    },
+    set(t) {
+      memToken = t;
+      try { if (t) localStorage.setItem('tpt_token', t); else localStorage.removeItem('tpt_token'); } catch { /* ignore */ }
+    },
+  };
+
   /* ── API helper ── */
   async function api(path, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    const t = tokenStore.get();
+    if (t) headers.Authorization = `Bearer ${t}`;
     const res = await fetch(`/api${path}`, {
-      headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       ...opts,
+      headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
     let data = null;
     try { data = await res.json(); } catch { /* empty */ }
     if (!res.ok) {
       const msg = (data && data.error) || `Request failed (${res.status})`;
-      if (res.status === 401 && state.user) { state.user = null; renderShell(); location.hash = '#/login'; }
+      if (res.status === 401 && state.user) {
+        tokenStore.set(null);
+        state.user = null;
+        renderShell();
+        location.hash = '#/login';
+      }
       throw new Error(msg);
     }
     return data;
@@ -137,7 +158,6 @@ const App = (() => {
       const [name, ico, label] = it;
       return `<button class="nav-item ${current === name ? 'active' : ''}" data-nav="#/${name}">
         <span class="ico">${ico}</span>${label}
-        ${name === 'history' && state.unread && false ? '' : ''}
       </button>`;
     }).join('');
     $$('#nav .nav-item').forEach(b => b.addEventListener('click', () => {
@@ -209,6 +229,16 @@ const App = (() => {
   const tzLabel = (tz) => String(tz || '').split('/').pop().replace(/_/g, ' ');
 
   /* ── Boot ── */
+  async function doLogin(email, password) {
+    const d = await api('/auth/login', { method: 'POST', body: { email, password } });
+    tokenStore.set(d.token);
+    state.user = d.user;
+    renderShell();
+    if (location.hash === '#/login' || !location.hash) location.hash = '#/dashboard';
+    navigate();
+    toast(`Welcome back, ${d.user.name.split(' ')[0]}!`, 'success');
+  }
+
   async function boot() {
     // login form
     $('#auth-form').addEventListener('submit', async (e) => {
@@ -217,25 +247,30 @@ const App = (() => {
       btn.disabled = true; btn.textContent = 'Signing in…';
       $('#auth-error').textContent = '';
       try {
-        const d = await api('/auth/login', { method: 'POST', body: { email: $('#auth-email').value, password: $('#auth-password').value } });
-        state.user = d.user;
-        renderShell();
-        if (location.hash === '#/login' || !location.hash) location.hash = '#/dashboard';
-        navigate();
-        toast(`Welcome back, ${d.user.name.split(' ')[0]}!`, 'success');
+        await doLogin($('#auth-email').value, $('#auth-password').value);
       } catch (err) {
         $('#auth-error').textContent = err.message;
       } finally {
         btn.disabled = false; btn.textContent = 'Sign in';
       }
     });
-    $$('.demo-chip').forEach(c => c.addEventListener('click', () => {
+    $$('.demo-chip').forEach(c => c.addEventListener('click', async () => {
       $('#auth-email').value = c.dataset.email;
       $('#auth-password').value = c.dataset.password;
-      $('#auth-form').dispatchEvent(new Event('submit', { cancelable: true }));
+      const btn = $('#auth-btn');
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      $('#auth-error').textContent = '';
+      try {
+        await doLogin(c.dataset.email, c.dataset.password);
+      } catch (err) {
+        $('#auth-error').textContent = err.message;
+      } finally {
+        btn.disabled = false; btn.textContent = 'Sign in';
+      }
     }));
     $('#logout-btn').addEventListener('click', async () => {
-      await api('/auth/logout', { method: 'POST' });
+      try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+      tokenStore.set(null);
       state.user = null;
       renderShell();
     });
@@ -253,11 +288,25 @@ const App = (() => {
     });
     window.addEventListener('hashchange', navigate);
 
-    // session restore
-    try {
-      const d = await api('/auth/me');
-      state.user = d.user;
-    } catch { state.user = null; }
+    // session restore — stored bearer token first, then cookie session
+    // (a cookie session's token is adopted so refreshes keep working in
+    // cross-site iframe previews where cookies stop being sent)
+    if (!tokenStore.get()) {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.user && d.token) tokenStore.set(d.token);
+          state.user = d.user || null;
+        }
+      } catch { state.user = null; }
+    } else {
+      try {
+        const d = await api('/auth/me');
+        state.user = d.user || null;
+        if (d.token) tokenStore.set(d.token);
+      } catch { state.user = null; }
+    }
     renderShell();
     if (state.user) navigate();
   }

@@ -11,20 +11,38 @@ const { renderEmail, TEMPLATE_KEYS } = require('./notify/templates');
 const router = express.Router();
 
 /* ─── Auth ───────────────────────────────────────────────────────────────── */
-router.use((req, res, next) => {
+/* Sessions work via HttpOnly cookie AND an Authorization: Bearer token.
+ * The bearer path keeps auth working inside cross-site preview iframes where
+ * browsers may refuse to store/send cookies. */
+function readSessionToken(req) {
+  const h = req.headers.authorization || '';
+  if (h.startsWith('Bearer ')) return h.slice(7).trim();
   const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=').map(decodeURIComponent)).filter(p => p[0]));
-  const t = cookies.tpt_session;
-  req.user = null;
-  if (t) {
-    const s = db.prepare('SELECT * FROM sessions WHERE token = ?').get(t);
-    if (s && s.expires_at > nowIso()) {
-      req.user = db.prepare('SELECT id, role, name, email, phone, title FROM users WHERE id = ?').get(s.user_id) || null;
-    }
+  return cookies.tpt_session || null;
+}
+function resolveUser(req) {
+  const t = readSessionToken(req);
+  if (!t) return null;
+  const s = db.prepare('SELECT * FROM sessions WHERE token = ?').get(t);
+  if (s && s.expires_at > nowIso()) {
+    return db.prepare('SELECT id, role, name, email, phone, title FROM users WHERE id = ?').get(s.user_id) || null;
   }
+  return null;
+}
+
+router.use((req, res, next) => {
+  req.user = resolveUser(req);
   next();
 });
 const requireAuth = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'Not signed in' });
 const requireAdmin = (req, res, next) => (req.user && req.user.role === 'admin') ? next() : res.status(403).json({ error: 'Admin access required' });
+
+function sessionCookie(req, t) {
+  const https = (req.headers['x-forwarded-proto'] || '').includes('https') || req.headers['x-forwarded-ssl'] === 'on';
+  // SameSite=None requires Secure — needed for cross-site iframe previews
+  const sameSite = https ? 'SameSite=None; Secure' : 'SameSite=Lax';
+  return `tpt_session=${t}; HttpOnly; Path=/; ${sameSite}; Max-Age=${30 * 86400}`;
+}
 
 router.post('/auth/login', (req, res) => {
   const { email, password } = req.body || {};
@@ -36,18 +54,23 @@ router.post('/auth/login', (req, res) => {
   const t = token();
   db.prepare('INSERT INTO sessions(token,user_id,created_at,expires_at) VALUES(?,?,?,?)')
     .run(t, user.id, nowIso(), new Date(Date.now() + 30 * 864e5).toISOString());
-  res.setHeader('Set-Cookie', `tpt_session=${t}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${30 * 86400}`);
-  res.json({ user: { id: user.id, role: user.role, name: user.name, email: user.email, title: user.title } });
+  res.setHeader('Set-Cookie', sessionCookie(req, t));
+  res.json({ user: { id: user.id, role: user.role, name: user.name, email: user.email, title: user.title }, token: t });
 });
 
 router.post('/auth/logout', (req, res) => {
-  const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=')).filter(p => p[0] === 'tpt_session'));
-  if (cookies.tpt_session) db.prepare('DELETE FROM sessions WHERE token = ?').run(decodeURIComponent(cookies.tpt_session));
+  const t = readSessionToken(req);
+  if (t) db.prepare('DELETE FROM sessions WHERE token = ?').run(t);
   res.setHeader('Set-Cookie', 'tpt_session=; HttpOnly; Path=/; Max-Age=0');
   res.json({ ok: true });
 });
 
-router.get('/auth/me', (req, res) => res.json({ user: req.user }));
+router.get('/auth/me', (req, res) => {
+  // Return the token as well so an existing cookie session can adopt the
+  // bearer flow when cookies stop being sent (iframe contexts).
+  const t = readSessionToken(req);
+  res.json({ user: req.user, token: req.user ? t : null });
+});
 
 /* ─── Meta (dropdown data + prefs catalog) ───────────────────────────────── */
 router.get('/meta', requireAuth, (req, res) => {
